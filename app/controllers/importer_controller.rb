@@ -13,9 +13,10 @@ class Journal < ActiveRecord::Base
   end
 end
 
-class ActionController::Flash::FlashHash < Hash
+
+class ActionDispatch::Flash::FlashHash
   def append(key,msg)
-    if !self.has_key?(key)
+    if self[key].blank?
       self[key] = msg
     else
       self[key] += "<br />"+msg
@@ -58,15 +59,20 @@ class ImporterController < ApplicationController
     i = 0
     @samples = []
     
-    FasterCSV.new(iip.csv_data, {:headers=>true,
-    :encoding=>iip.encoding, :quote_char=>iip.quote_char, :col_sep=>iip.col_sep}).each do |row|
-      @samples[i] = row
-     
-      i += 1
-      if i >= sample_count
-        break
-      end
-    end # do
+    begin
+      CSV.new(iip.csv_data.force_encoding("UTF-8").encode("UTF-8", replace: nil).strip, {:headers=>true,
+      :quote_char=>iip.quote_char, :col_sep=>iip.col_sep}).each do |row|
+        @samples[i] = row
+       
+        i += 1
+        if i >= sample_count
+          break
+        end
+      end # do
+    rescue Exception => ex
+      flash[:error] = "#{ex}"
+      render :index
+    end  
     
     if @samples.size > 0
       @headers = @samples[0].headers
@@ -221,7 +227,7 @@ class ImporterController < ApplicationController
       return
     end
 
-    FasterCSV.new(iip.csv_data, {:headers=>true, :encoding=>iip.encoding, 
+    CSV.new(iip.csv_data.force_encoding("UTF-8").encode("UTF-8", replace: nil).strip, {:headers=>true,
         :quote_char=>iip.quote_char, :col_sep=>iip.col_sep}).each do |row|
 
       project = Project.find_by_name(row[attrs_map["project"]])
@@ -329,8 +335,10 @@ class ImporterController < ApplicationController
       # optional attributes
       issue.description = row[attrs_map["description"]] || issue.description
       issue.category_id = category != nil ? category.id : issue.category_id
-      issue.start_date = row[attrs_map["start_date"]] || issue.start_date
-      issue.due_date = row[attrs_map["due_date"]] || issue.due_date
+      row_start_date = row[attrs_map["start_date"]]
+      issue.start_date =  row_start_date.nil? ? issue.start_date : row_start_date.to_date
+      row_due_date = row[attrs_map["due_date"]] 
+      issue.due_date =  row_due_date.nil? ? issue.due_date : row_due_date.to_date
       issue.assigned_to_id = assigned_to != nil ? assigned_to.id : issue.assigned_to_id
       issue.fixed_version_id = fixed_version_id != nil ? fixed_version_id : issue.fixed_version_id
       issue.done_ratio = row[attrs_map["done_ratio"]] || issue.done_ratio
